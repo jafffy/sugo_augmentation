@@ -7,14 +7,6 @@ import sys
 import time
 from utils import degreeToRadian, stringToFloat
 
-# dirNames = ['0', '1', '7', '8', '9', '10', '12', '13', '14', '16']
-# dirNames = ['13']
-dirNames = ['virtualRotate']
-fileNames = ['0']
-
-# workspacePath = "C:\\Users\\three\\Desktop\\workspace\\EIS_lab_intern\\work1\\my_workspace\\new_sample\\"
-workspacePath = "C:\\Users\\three\\Desktop\\workspace\\EIS_lab_intern\\work1\\my_workspace\\rotated_sample\\test\\"
-
 height = 480
 width = 640
 
@@ -46,8 +38,10 @@ def depth_to_coordinates(arr):
 
 
 # convert 2D coordinate(x, y, z) array to 2D depth array
-def coordinatesTodepth(crdArr, vt, fsz):
-    ret = plt.zeros((height, width))
+def coordinates_to_depth(crdArr, vt, fsz, theta):
+    # feature_size = (224, 224)
+
+    ret = plt.zeros(feature_size)
 
     t = time.time()
     for index in range(len(crdArr)):
@@ -58,8 +52,14 @@ def coordinatesTodepth(crdArr, vt, fsz):
         if(cz==0):
             continue
 
-        k_x = tan_hFOV_half*cz / (width//2)
-        k_y = tan_vFOV_half*cz / (height//2)
+        hFOV_prime = degreeToRadian(56.559 + theta)
+        vFOV_prime = math.atan(height / width * math.tan(hFOV_prime / 2)) * 2
+
+        tan_hFOV_half_prime = math.tan(hFOV_prime / 2)
+        tan_vFOV_half_prime = math.tan(vFOV_prime / 2)
+
+        k_x = tan_hFOV_half_prime*cz / (width//2)
+        k_y = tan_vFOV_half_prime*cz / (height//2)
 
         cc = ((width//2)*k_x - cx)/k_x
         cr = ((height//2)*k_y - cy)/k_y
@@ -104,23 +104,36 @@ def get_rotation_matrix_x_axis(degree):
     ])
 
 
-def make_png(curTxtPath):
-    depthTxt = open(curTxtPath + ".txt", "r")
-    tmpArr = depthTxt.read().replace('\n', ' ').replace('  ', ' ').split(' ')
+def make_png(curTxtPath, is_np_array=False):
+    from pathlib import Path
+
+    path = Path(curTxtPath)
+    parent_path = str(path.parent)
+
+    for rotateDegree in [-8, -4, -2, 0, 2, 4, 8]:
+        for FoVDegree in [0]:
+            for scale_degree in range(3):
+                dirname = str(rotateDegree) + '_' + str(FoVDegree) + '_' + str(1.0 + scale_degree * 0.1)
+                dirpath = os.path.join(parent_path, dirname)
+
+                if not os.path.exists(dirpath):
+                    os.mkdir(dirpath)
+
+    if is_np_array:
+        tmpArr = np.load(curTxtPath)
+    else:
+        depthTxt = open(curTxtPath, "r")
+        tmpArr = depthTxt.read().replace('\n', ' ').replace('  ', ' ').split(' ')
     print(len(tmpArr))
 
     txtArr = plt.zeros((height, width))  # 2D depth array
-    index = 0
+
     for i in range(height):
         for j in range(width):
-            txtArr[i][j] = stringToFloat(tmpArr[index])
-            if(txtArr[i][j]>DEPTH_THRSHOLD):
-                txtArr[i][j] = 0
-            index = index + 1
+            txtArr[i][j] = stringToFloat(tmpArr[i][j])
 
     crdArr = depth_to_coordinates(txtArr)
     newOrigin = (np.min(crdArr, axis=0) + np.max(crdArr, axis=0)) * 0.5   # error occurs
-    # newOrigin = [crdArr[height//2*width + width//2][0], crdArr[height//2*width + width//2][1], crdArr[height//2*width + width//2][2]]
 
     T = np.array([
         [1.0, 0.0, 0.0, newOrigin[0]],
@@ -141,33 +154,68 @@ def make_png(curTxtPath):
     # 회전한 png파일생성
     vt = 0
     for fsz in [5]:
-        for rotateDegree in range(-15, 15 + 1, 1):
-            t = time.time()
-            Rx = get_rotation_matrix_x_axis(rotateDegree)
+        for rotateDegree in [-8, -4, -2, 0, 2, 4, 8]:
+            for FoVDegree in [0]: # range(-4, 4 + 1, 2):
+                for scale_degree in range(3):
+                    t = time.time()
+                    Rx = get_rotation_matrix_x_axis(rotateDegree)
 
-            rotatedCrdArr = np.transpose(np.dot(np.dot(T, Rx), transposed_point_cloud))
-            rotatedDepthArr = coordinatesTodepth(rotatedCrdArr, vt, fsz)  # rotateDepthArr로 txt파일 만들면 회전변환된 depth 파일
+                    scale_factor = 1.0 + scale_degree * 0.1
 
-            def save_imagefile(newPngPath, rotatedDepthArr, t):
-                plt.imsave(newPngPath, rotatedDepthArr)
-                plt.imshow(rotatedDepthArr)
-                print(newPngPath + " done within %f" % (time.time() - t))
+                    S = np.array([
+                        [scale_factor, 0.0, 0.0, 0.0],
+                        [0.0, scale_factor, 0.0, 0.0],
+                        [0.0, 0.0, 1.0, 0.0],
+                        [0.0, 0.0, 0.0, 1.0]
+                    ])
 
-            if (rotateDegree < 0):
-                save_imagefile(curTxtPath + "-vt_" + str(vt) + "-fsz_" + str(fsz) + "-m" + str(rotateDegree) + ".png",
-                               rotatedDepthArr, t)
-            else:
-                save_imagefile(curTxtPath + "-vt_" + str(vt) + "-fsz_" + str(fsz) + "-" + str(rotateDegree) + ".png",
-                               rotatedDepthArr, t)
+                    rotatedCrdArr = np.transpose(np.dot(np.dot(T, np.dot(Rx, S)), transposed_point_cloud))
+                    rotatedDepthArr = coordinates_to_depth(rotatedCrdArr, vt, fsz, np.sign(FoVDegree) * (2 ** abs(FoVDegree)))  # rotateDepthArr로 txt파일 만들면 회전변환된 depth 파일
 
-    return 0
+                    def save_imagefile(newPngPath, rotatedDepthArr, t):
+                        plt.imsave(newPngPath, rotatedDepthArr)
+                        plt.imshow(rotatedDepthArr)
+                        print(newPngPath + " done within %f" % (time.time() - t))
+
+                    dirname = str(rotateDegree) + '_' + str(FoVDegree) + '_' + str(scale_factor)
+                    dirpath = os.path.join(parent_path, dirname)
+                    filename = os.path.basename(curTxtPath).split('.')[0] + '.png'
+                    
+                    # save_imagefile(curTxtPath + "-vt_" + str(vt) + "-fsz_" + str(fsz) + "-" + str(rotateDegree) + "-fov" + str(np.sign(FoVDegree) * (2 ** abs(FoVDegree))) + "-scale" + str(scale_degree * 0.1) + ".png", rotatedDepthArr, t)
+                    save_imagefile(os.path.join(dirpath, filename), rotatedDepthArr, t)
 
 def main():
-    for curDirName in dirNames:
-        for curFileName in fileNames:
-            txtPath = os.path.join(workspacePath + curDirName, curFileName)
-            make_png(txtPath)
+    import os
 
+    assert len(sys.argv) == 2
+
+    if sys.argv[1].endswith('.txt'):
+        with open(sys.argv[1], 'r') as f:
+            for line in f:
+                filename = line.strip()
+
+                if not os.path.isfile(filename): 
+                    continue
+                
+                make_png(filename, is_np_array=True)
+        return
+
+    base_dir = sys.argv[1]
+
+    def flatten_dir(base_dir, depth):
+        if depth == 1:
+            return [os.path.join(base_dir, x) for x in os.listdir(base_dir)]
+        else:
+            flatten_dirs = []
+
+            for path in os.listdir(base_dir):
+                flatten_dirs += flatten_dir(os.path.join(base_dir, path), depth - 1)
+
+            return flatten_dirs
+
+    for text_path in filter(lambda x: x.endswith('txt'), flatten_dir(base_dir, 3)):
+        make_png(text_path)
+        
 if __name__ == "__main__":
     # os.sys.setrecursionlimit(640*480)
     main()
