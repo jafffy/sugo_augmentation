@@ -39,9 +39,9 @@ def depth_to_coordinates(arr):
 
 # convert 2D coordinate(x, y, z) array to 2D depth array
 def coordinates_to_depth(crdArr, vt, fsz, theta):
-    # feature_size = (224, 224)
+    ret = plt.zeros((height, width))
 
-    ret = plt.zeros(feature_size)
+    print(crdArr)
 
     t = time.time()
     for index in range(len(crdArr)):
@@ -81,11 +81,17 @@ def coordinates_to_depth(crdArr, vt, fsz, theta):
             elif (ret[tr][tc]>0):
                 ret[tr][tc] = min(ret[tr][tc], cd)
 
+    from skimage.transform import resize
+    ret = resize(ret, (224, 224))
+
     t0 = time.time()
     print(t0 - t)
 
     from scipy import ndimage
     ret = ndimage.median_filter(ret, fsz)
+
+    from sklearn.preprocessing import minmax_scale
+    ret = minmax_scale(ret.ravel(), feature_range=(0, 1)).reshape(ret.shape)
 
     return ret
 
@@ -177,12 +183,19 @@ def make_png(curTxtPath, is_np_array=False):
                         plt.imshow(rotatedDepthArr)
                         print(newPngPath + " done within %f" % (time.time() - t))
 
+                    def save_npyfile(npy_path, rotatedDepthArr, t):
+                        np.save(npy_path, rotatedDepthArr)
+                        print(npy_path + " done within %f" % (time.time() - t))
+
+                    dirname = str(rotateDegree) + '_' + str(FoVDegree) + '_' + str(scale_factor)
+
                     dirname = str(rotateDegree) + '_' + str(FoVDegree) + '_' + str(scale_factor)
                     dirpath = os.path.join(parent_path, dirname)
                     filename = os.path.basename(curTxtPath).split('.')[0] + '.png'
                     
                     # save_imagefile(curTxtPath + "-vt_" + str(vt) + "-fsz_" + str(fsz) + "-" + str(rotateDegree) + "-fov" + str(np.sign(FoVDegree) * (2 ** abs(FoVDegree))) + "-scale" + str(scale_degree * 0.1) + ".png", rotatedDepthArr, t)
                     save_imagefile(os.path.join(dirpath, filename), rotatedDepthArr, t)
+                    # save_npyfile(os.path.join(dirpath, filename), rotatedDepthArr, t)
 
 def main():
     import os
